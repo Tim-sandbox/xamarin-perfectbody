@@ -1,27 +1,73 @@
-# Xamarin.Android
-# Build a Xamarin.Android project.
-# Add steps that test, sign, and distribute an app, save build artifacts, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/xamarin
-
-trigger:
-- master
-
 pool:
-  vmImage: 'macos-latest'
+  name: Hosted VS2017
+  demands:
+  - MSBuild
+  - Xamarin.Android
+  - msbuild
+  - vstest
+  - java
+  - JDK
 
 variables:
-  buildConfiguration: 'Release'
-  outputDirectory: '$(build.binariesDirectory)/$(buildConfiguration)'
+  BuildConfiguration: 'Release'
+  Parameters.restorePkgSolution: '**\*.sln'
+  Parameters.appFiles: '$(build.binariesdirectory)/$(BuildConfiguration)/*.apk'
 
 steps:
-- task: NuGetToolInstaller@1
+- task: NuGetToolInstaller@0
+  displayName: 'Use NuGet 4.4.1'
+  inputs:
+    versionSpec: 4.4.1
 
 - task: NuGetCommand@2
+  displayName: 'NuGet restore'
   inputs:
-    restoreSolution: '**/*.sln'
+    restoreSolution: '$(Parameters.restorePkgSolution)'
+
+- task: SonarSource.sonarcloud.14d9cde6-c1da-4d55-aa01-2965cd301255.SonarCloudPrepare@1
+  displayName: 'Prepare analysis on SonarCloud'
+  inputs:
+    SonarCloud: SonarCloudConnection
+    organization: houssemdellai
+    projectKey: 'Xamarin-Android-App-CI-VSTS'
 
 - task: XamarinAndroid@1
+  displayName: 'Build Xamarin.Android project'
   inputs:
-    projectFile: '**/*droid*.csproj'
-    outputDirectory: '$(outputDirectory)'
-    configuration: '$(buildConfiguration)'
+    projectFile: '**/*Droid*.csproj'
+    outputDirectory: '$(build.binariesdirectory)/$(BuildConfiguration)'
+    configuration: '$(BuildConfiguration)'
+
+- task: MSBuild@1
+  displayName: 'Build UnitTests'
+  inputs:
+    solution: PerfectBody.UnitTests/PerfectBody.UnitTests.csproj
+    configuration: '$(BuildConfiguration)'
+    msbuildArguments: '/p:OutputPath="$(build.binariesdirectory)/$(BuildConfiguration)/test-assembly"'
+
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      Set-Content -Value "apiKey=a452180f174846a493e8f1abad8ee093abd66fb665a24a50a9016db08a02fdbc" -Path ./eua.config
+      Add-Content -Value "userKey=1261b5af19e940e2bbb63fc0208cc77f7e24a9bc83874853b6f6eb2585990c99" -Path ./eua.config
+      Add-Content -Value "enableImpactAnalysis=true" -Path ./eua.config
+      Add-Content -Value "requireKnownSha1=false" -Path ./eua.config
+      Add-Content -Value "resolveAllDependencies=false" -Path ./eua.config
+      Add-Content -Value "nuget.resolveDependencies=true" -Path ./eua.config
+      Add-Content -Value "nuget.runPreStep=true" -Path ./eua.config
+      Add-Content -Value "fileSystemScan=false" -Path ./eua.config
+      Add-Content -Value "includes=**/*.dll **/*.exe" -Path ./eua.config
+      Add-Content -Value "excludes=**/tests/**" -Path ./eua.config
+      Get-Content -Path ./eua.config
+  displayName: 'Create whitesource config'
+  
+- script: |
+    curl -LJO https://github.com/whitesource-ft/xModuleAnalyzer-NET/blob/main/xModuleAnalyzer-NET.ps1
+    echo "xModuleAnalyzer-NET downloaded successfully"
+- task: PowerShell@2
+  inputs:
+    filePath: './xModuleAnalyzer-NET.ps1'
+    arguments: '-d ./ -c ./eua.config -productName AZDO_$(System.TeamProject)'
+  displayName: 'Unified Agent Prioritize Scan'
+  
