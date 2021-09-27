@@ -1,0 +1,55 @@
+pool:
+  name: Hosted VS2017
+  demands:
+  - MSBuild
+  - Xamarin.Android
+  - msbuild
+  - vstest
+  - java
+  - JDK
+
+variables:
+  BuildConfiguration: 'Release'
+  Parameters.restorePkgSolution: '**\*.sln'
+  Parameters.appFiles: '$(build.binariesdirectory)/$(BuildConfiguration)/*.apk'
+
+steps:
+- task: NuGetToolInstaller@0
+  displayName: 'Use NuGet 4.4.1'
+  inputs:
+    versionSpec: 4.4.1
+
+- task: NuGetCommand@2
+  displayName: 'NuGet restore'
+  inputs:
+    restoreSolution: '$(Parameters.restorePkgSolution)'
+
+- task: XamarinAndroid@1
+  displayName: 'Build Xamarin.Android project'
+  inputs:
+    projectFile: '**/*Droid*.csproj'
+    outputDirectory: '$(build.binariesdirectory)/$(BuildConfiguration)'
+    configuration: '$(BuildConfiguration)'
+
+- script: |
+  env:
+    WS_APIKEY: $(APIKEY)
+    WS_USERKEY: $(USERKEY)
+    WS_PRODUCTNAME: AZDO_$(System.TeamProject)
+    WS_PROJECTNAME: $(Build.Repository.Name)_$(Build.SourceBranchName)_Prioritize
+    WS_ENABLEIMPACTANALYSIS: true
+    WS_REQUIREKNOWNSHA1: false
+    WS_RESOLVEALLDEPENDENCIES: false
+    WS_NUGET_RESOLVEDEPENDENCIES: true
+    WS_NUGET_RUNPRESTEP: true
+    WS_FILESYSTEMSCAN: false
+    WS_GENERATEPROJECTDETAILSJSON: true
+    WS_EXCLUDES: '**/build/** **/tests/**'
+  displayName: 'Unified Agent Prioritize Scan'
+        run: |
+        curl -LJO https://unified-agent.s3.amazonaws.com/wss-unified-agent.jar
+        echo Unified Agent downloaded successfully
+        CSPROJ=$(basename $(find ./src -type f -wholename "*.csproj") .csproj)
+        DLL=$(find ./ -type f -wholename "*/bin/Release/*/$CSPROJ.dll")
+        java -jar wss-unified-agent.jar -appPath $DLL -d ./src
+        
